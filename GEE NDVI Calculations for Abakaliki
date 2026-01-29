@@ -1,0 +1,55 @@
+//define my study area
+var aoi = ee.Geometry.Point(8.082605,6.325096);
+Map.addLayer(aoi);
+Map.centerObject(aoi,12);
+Map.addLayer(aoi, {color:'blue'},'Study area');
+
+//Date range
+var startDate='2020-01-01';
+var endDate='2025-12-30';
+
+//Function for NDVI
+var addNdviAndMask=function(image){
+  var scl=image.select('SCL');
+  var landMask=scl.eq(4).or(scl.eq(5)).or(scl.eq(6)).or(scl.eq(7));
+  var ndvi= image.normalizedDifference(['B8','B4']).rename('NDVI');
+  return image.addBands(ndvi).updateMask(landMask).copyProperties(image,['system:time_start']);
+};
+
+//Load the sentinel data
+var s2Collection= ee.ImageCollection ('COPERNICUS/S2_SR_HARMONIZED')
+.filterBounds(aoi)
+.filterDate(startDate,endDate)
+.map(addNdviAndMask);
+
+//Build the list of months
+var makeMonthlyNdvi= function(date){
+  date=ee.Date(date);
+  var monthlyNdviMean= s2Collection.filterDate(date,date.advance(1,'month'))
+  .select('NDVI').mean().set('system:time_start',date.millis());
+  return monthlyNdviMean;
+};
+//calculate of month
+var months=ee.Date(endDate).difference(ee.Date(startDate),'month').round();
+//create a list of months start dates
+var monthStartDate=ee.List.sequence(0,months.subtract(1)).map(function(n){
+return ee.Date(startDate).advance(n,'month');
+});
+//create monthly ndvi image collection
+var monthlyNdviCollection= ee.ImageCollection.fromImages(monthStartDate.map(makeMonthlyNdvi));
+//create ndvi chart
+var ndvichart= ui.Chart.image.series({
+  imageCollection:monthlyNdviCollection.select('NDVI'),
+  region:aoi,
+  reducer:ee.Reducer.mean(),
+  scale:500,
+  xProperty:'system:time_start'
+})
+.setOptions({
+title:'Monthly Mean NDVI of 2020-2025',
+vAxis:{title:'NDVI'},
+hAxis:{title:'Time'},
+lineWidth:2,
+pointSize:3
+});
+print(ndvichart);
